@@ -55,6 +55,10 @@ function mapDbTxToTransaction(row: DbTransactionRow): Transaction {
       recipient = 'Laguna';
       recipientSub = 'Blerje';
       logo = '/assets/logos/laguna logo.png';
+    } else if (row.receiver_handle === '@cineplexxal' || row.receiver_handle.toLowerCase().includes('cineplexx')) {
+      recipient = 'Cineplexx AL';
+      recipientSub = 'Blerje';
+      logo = '/assets/logos/cineplexx logo.png';
     } else {
       recipient = row.receiver_handle;
       recipientSub = 'Blerje';
@@ -87,7 +91,7 @@ interface PirroContextType {
   setShowBalance: (show: boolean) => void;
   transactions: Transaction[];
   addFunds: (amount: number) => Promise<void> | void;
-  payMerchant: (amount: number, recipient: string, logo?: string) => Transaction;
+  payMerchant: (amount: number, recipient: string, logo?: string, handle?: string) => Transaction;
   formatPirro: (amount: number) => string;
   merchantPayments: MerchantPayment[];
   collectMerchantPayment: (amount: number) => MerchantPayment;
@@ -259,7 +263,7 @@ export function PirroProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const payMerchant = (amount: number, recipient: string, logo?: string): Transaction => {
+  const payMerchant = (amount: number, recipient: string, logo?: string, handle?: string): Transaction => {
     const refCode = `PAY-${Math.floor(100000 + Math.random() * 900000)}`;
     const newTx: Transaction = {
       id: `tx-${Date.now()}`,
@@ -279,20 +283,15 @@ export function PirroProvider({ children }: { children: React.ReactNode }) {
 
     (async () => {
       try {
-        const receiverHandle = recipient.startsWith('@')
+        const receiverHandle = handle || (recipient.startsWith('@')
           ? recipient
-          : `@${recipient.toLowerCase().replace(/\s+/g, '')}`;
+          : recipient.toLowerCase().includes('cineplexx')
+          ? '@cineplexxal'
+          : recipient.toLowerCase().includes('laguna')
+          ? '@laguna'
+          : `@${recipient.toLowerCase().replace(/\s+/g, '')}`);
 
-        // 1. Insert into transactions ledger
-        await supabase.from('transactions').insert({
-          sender_handle: '@alkid',
-          receiver_handle: receiverHandle,
-          amount_p: amount,
-          reference_code: refCode,
-          status: 'COMPLETED',
-        });
-
-        // 2. Increment merchant profile balance
+        // 1. Ensure merchant profile exists in Supabase to avoid foreign key constraint violations
         const { data: merchantProfile } = await supabase
           .from('profiles')
           .select('balance_p')
@@ -307,6 +306,27 @@ export function PirroProvider({ children }: { children: React.ReactNode }) {
               last_active_at: new Date().toISOString(),
             })
             .eq('handle', receiverHandle);
+        } else {
+          await supabase.from('profiles').insert({
+            handle: receiverHandle,
+            full_name: recipient.replace(/^@/, ''),
+            role: 'merchant',
+            balance_p: amount,
+            last_active_at: new Date().toISOString(),
+          });
+        }
+
+        // 2. Insert into transactions ledger
+        const { error: txErr } = await supabase.from('transactions').insert({
+          sender_handle: '@alkid',
+          receiver_handle: receiverHandle,
+          amount_p: amount,
+          reference_code: refCode,
+          status: 'COMPLETED',
+        });
+
+        if (txErr) {
+          console.error('Error inserting payment transaction:', txErr);
         }
 
         // 3. Confirm and sync ledger balance

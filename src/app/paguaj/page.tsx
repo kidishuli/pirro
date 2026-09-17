@@ -376,7 +376,7 @@ export default function PaguajPage() {
 
   // Execute payment
   const handleExecutePayment = () => {
-    const tx = payMerchant(numericAmount, selectedMerchant.name, selectedMerchant.logo);
+    const tx = payMerchant(numericAmount, selectedMerchant.name, selectedMerchant.logo, selectedMerchant.sub);
     setLastTx(tx);
     playPaymentChime();
     setStep('confirmation');
