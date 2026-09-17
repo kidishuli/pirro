@@ -5,49 +5,14 @@ import Image from 'next/image';
 import FloatingDock from '@/components/shared/FloatingDock';
 import ShtoParaModal from '@/components/modals/ShtoParaModal';
 import { usePirro } from '@/context/PirroContext';
-import { supabase } from '@/lib/supabase';
 
 export default function PortofoliPage() {
-  const { balance, isDormant, toggleDormant, showBalance, setShowBalance, formatPirro, addFunds } = usePirro();
+  const { balance, isDormant, toggleDormant, showBalance, setShowBalance, formatPirro } = usePirro();
   const [showDormantBanner, setShowDormantBanner] = useState(true);
   const [isShtoParaOpen, setIsShtoParaOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
-  const [selectedTopUpAmount, setSelectedTopUpAmount] = useState<number>(1000);
-  const [isTopUpLoading, setIsTopUpLoading] = useState(false);
 
   const displayBalance = isDormant ? Math.max(0, balance - 50) : balance;
-
-  // Real Top-up Execution: Updates balance AND logs transaction in Supabase
-  const handleTopUpSubmit = async () => {
-    setIsTopUpLoading(true);
-    const newBal = balance + selectedTopUpAmount;
-    const refCode = 'TOPUP-' + Math.floor(100000 + Math.random() * 900000);
-
-    // 1. Update @alkid's balance
-    const { error: profileError } = await supabase
-      .from('profiles')
-      .update({ balance_p: newBal, last_active_at: new Date().toISOString() })
-      .eq('handle', '@alkid');
-
-    // 2. Insert into the transactions ledger
-    const { error: txError } = await supabase
-      .from('transactions')
-      .insert({
-        sender_handle: '@bkt',
-        receiver_handle: '@alkid',
-        amount_p: selectedTopUpAmount,
-        reference_code: refCode,
-        status: 'COMPLETED',
-      });
-
-    if (!profileError && !txError) {
-      addFunds(selectedTopUpAmount);
-      setIsShtoParaOpen(false);
-    } else {
-      console.error('Gabim gjatë rimbushjes:', profileError || txError);
-    }
-    setIsTopUpLoading(false);
-  };
 
   return (
     <div className="relative w-full h-full bg-[#F5F5F5] overflow-hidden">

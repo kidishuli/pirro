@@ -42,7 +42,7 @@ export default function MerchantAktivitetiPage() {
             .on(
                 'postgres_changes',
                 {
-                    event: 'INSERT',
+                    event: '*',
                     schema: 'public',
                     table: 'transactions',
                     filter: 'receiver_handle=eq.@laguna',

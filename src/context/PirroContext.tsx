@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 
 export interface Transaction {
@@ -86,7 +86,7 @@ interface PirroContextType {
   showBalance: boolean;
   setShowBalance: (show: boolean) => void;
   transactions: Transaction[];
-  addFunds: (amount: number) => void;
+  addFunds: (amount: number) => Promise<void> | void;
   payMerchant: (amount: number, recipient: string, logo?: string) => Transaction;
   formatPirro: (amount: number) => string;
   merchantPayments: MerchantPayment[];
@@ -130,42 +130,50 @@ export function PirroProvider({ children }: { children: React.ReactNode }) {
   const [showBalance, setShowBalance] = useState(true);
   const [transactions, setTransactions] = useState<Transaction[]>(INITIAL_TRANSACTIONS);
 
+  const BASE_BALANCE = 3450;
+
+  const loadData = useCallback(async () => {
+    try {
+      const { data: dbTxs, error } = await supabase
+        .from('transactions')
+        .select('*')
+        .or('sender_handle.eq.@alkid,receiver_handle.eq.@alkid')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching initial data from Supabase:', error);
+        return;
+      }
+
+      const rows = (dbTxs || []) as DbTransactionRow[];
+
+      // Calculate net change strictly from ledger transactions
+      const netChange = rows.reduce((acc, tx) => {
+        const amt = Number(tx.amount_p) || 0;
+        if (tx.receiver_handle === '@alkid') return acc + amt;
+        if (tx.sender_handle === '@alkid') return acc - amt;
+        return acc;
+      }, 0);
+
+      const calculatedBalance = Math.max(0, BASE_BALANCE + netChange);
+      setBalance(calculatedBalance);
+
+      // Map DB transactions and append base initial transactions
+      const mappedTxs = rows.map(mapDbTxToTransaction);
+      setTransactions([...mappedTxs, ...INITIAL_TRANSACTIONS]);
+
+      // Keep profiles.balance_p updated in Supabase to maintain database consistency
+      await supabase
+        .from('profiles')
+        .update({ balance_p: calculatedBalance, last_active_at: new Date().toISOString() })
+        .eq('handle', '@alkid');
+    } catch (err) {
+      console.error('Error loading data from Supabase:', err);
+    }
+  }, []);
+
   // Sync initial balance & transactions from Supabase, and listen for realtime updates
   useEffect(() => {
-    async function loadData() {
-      try {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('balance_p')
-          .eq('handle', '@alkid')
-          .single();
-
-        if (profile && typeof profile.balance_p === 'number') {
-          setBalance(profile.balance_p);
-        }
-
-        const { data: dbTxs } = await supabase
-          .from('transactions')
-          .select('*')
-          .or('sender_handle.eq.@alkid,receiver_handle.eq.@alkid')
-          .order('created_at', { ascending: false });
-
-        if (dbTxs && dbTxs.length > 0) {
-          const mappedTxs = (dbTxs as DbTransactionRow[]).map(mapDbTxToTransaction);
-          setTransactions((prev) => {
-            const existingIds = new Set(mappedTxs.map((t) => t.id));
-            const existingRefs = new Set(mappedTxs.map((t) => t.transactionNumber));
-            const uniquePrev = prev.filter(
-              (p) => !existingIds.has(p.id) && !existingRefs.has(p.transactionNumber)
-            );
-            return [...mappedTxs, ...uniquePrev];
-          });
-        }
-      } catch (err) {
-        console.error('Error fetching initial data from Supabase:', err);
-      }
-    }
-
     loadData();
 
     // Realtime subscription: profile balance updates
@@ -180,36 +188,25 @@ export function PirroProvider({ children }: { children: React.ReactNode }) {
           filter: 'handle=eq.@alkid',
         },
         (payload) => {
-          if (payload.new && 'balance_p' in payload.new) {
-            setBalance(payload.new.balance_p as number);
+          if (payload.new && 'balance_p' in payload.new && typeof payload.new.balance_p === 'number') {
+            setBalance(payload.new.balance_p);
           }
         }
       )
       .subscribe();
 
-    // Realtime subscription: new transactions
+    // Realtime subscription: transactions changes (INSERT, UPDATE, DELETE)
     const txChannel = supabase
       .channel('realtime_transactions')
       .on(
         'postgres_changes',
         {
-          event: 'INSERT',
+          event: '*',
           schema: 'public',
           table: 'transactions',
         },
-        (payload) => {
-          if (payload.new) {
-            const newRow = payload.new as DbTransactionRow;
-            if (newRow.sender_handle === '@alkid' || newRow.receiver_handle === '@alkid') {
-              const mapped = mapDbTxToTransaction(newRow);
-              setTransactions((prev) => {
-                if (prev.some((t) => t.id === mapped.id || t.transactionNumber === mapped.transactionNumber)) {
-                  return prev;
-                }
-                return [mapped, ...prev];
-              });
-            }
-          }
+        async () => {
+          await loadData();
         }
       )
       .subscribe();
@@ -218,14 +215,14 @@ export function PirroProvider({ children }: { children: React.ReactNode }) {
       supabase.removeChannel(profileChannel);
       supabase.removeChannel(txChannel);
     };
-  }, []);
+  }, [loadData]);
 
   // Toggle dormant state (Day 0 vs Day 180+)
   const toggleDormant = () => {
     setIsDormant((prev) => !prev);
   };
 
-  const addFunds = (amount: number) => {
+  const addFunds = async (amount: number) => {
     const refCode = 'TOPUP-' + Math.floor(100000 + Math.random() * 900000);
     const newTx: Transaction = {
       id: `tx-${Date.now()}`,
@@ -243,39 +240,23 @@ export function PirroProvider({ children }: { children: React.ReactNode }) {
     setBalance((prev) => prev + amount);
     setTransactions((prev) => [newTx, ...prev]);
 
-    (async () => {
-      try {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('balance_p')
-          .eq('handle', '@alkid')
-          .single();
+    try {
+      const { error: txError } = await supabase.from('transactions').insert({
+        sender_handle: '@bkt',
+        receiver_handle: '@alkid',
+        amount_p: amount,
+        reference_code: refCode,
+        status: 'COMPLETED',
+      });
 
-        const currentBal = profile?.balance_p ?? balance;
-        const newBal = currentBal + amount;
-
-        // 1. Update @alkid's balance
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .update({ balance_p: newBal, last_active_at: new Date().toISOString() })
-          .eq('handle', '@alkid');
-
-        // 2. Insert into the transactions ledger
-        const { error: txError } = await supabase.from('transactions').insert({
-          sender_handle: '@bkt',
-          receiver_handle: '@alkid',
-          amount_p: amount,
-          reference_code: refCode,
-          status: 'COMPLETED',
-        });
-
-        if (profileError || txError) {
-          console.error('Gabim gjatë rimbushjes:', profileError || txError);
-        }
-      } catch (err) {
-        console.error('Error syncing addFunds to Supabase:', err);
+      if (txError) {
+        console.error('Gabim gjatë rimbushjes:', txError);
       }
-    })();
+
+      await loadData();
+    } catch (err) {
+      console.error('Error syncing addFunds to Supabase:', err);
+    }
   };
 
   const payMerchant = (amount: number, recipient: string, logo?: string): Transaction => {
@@ -298,24 +279,20 @@ export function PirroProvider({ children }: { children: React.ReactNode }) {
 
     (async () => {
       try {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('balance_p')
-          .eq('handle', '@alkid')
-          .single();
-
-        const currentBal = profile?.balance_p ?? balance;
-        const newBal = Math.max(0, currentBal - amount);
-
-        await supabase
-          .from('profiles')
-          .update({ balance_p: newBal, last_active_at: new Date().toISOString() })
-          .eq('handle', '@alkid');
-
         const receiverHandle = recipient.startsWith('@')
           ? recipient
           : `@${recipient.toLowerCase().replace(/\s+/g, '')}`;
 
+        // 1. Insert into transactions ledger
+        await supabase.from('transactions').insert({
+          sender_handle: '@alkid',
+          receiver_handle: receiverHandle,
+          amount_p: amount,
+          reference_code: refCode,
+          status: 'COMPLETED',
+        });
+
+        // 2. Increment merchant profile balance
         const { data: merchantProfile } = await supabase
           .from('profiles')
           .select('balance_p')
@@ -332,13 +309,8 @@ export function PirroProvider({ children }: { children: React.ReactNode }) {
             .eq('handle', receiverHandle);
         }
 
-        await supabase.from('transactions').insert({
-          sender_handle: '@alkid',
-          receiver_handle: receiverHandle,
-          amount_p: amount,
-          reference_code: refCode,
-          status: 'COMPLETED',
-        });
+        // 3. Confirm and sync ledger balance
+        await loadData();
       } catch (err) {
         console.error('Error syncing payMerchant to Supabase:', err);
       }
