@@ -1,0 +1,91 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-suisse), system-ui, -apple-system, sans-serif;
+  --font-suisse: var(--font-suisse), system-ui, -apple-system, sans-serif;
+}
+
+/* Optimize touch interactions on mobile (Android/iOS) */
+html, body {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+
+button, a, input {
+  touch-action: manipulation;
+}
+
+/* Hide scrollbar for web mobile canvas */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* ============================================================ */
+/* QR Scanner Full-Bleed Camera Feed Styling                     */
+/* ============================================================ */
+#qr-reader,
+#customer-qr-reader {
+  width: 100% !important;
+  height: 100% !important;
+  border: none !important;
+  position: absolute !important;
+  inset: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  background: #000 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  overflow: hidden !important;
+}
+
+#qr-reader > div,
+#customer-qr-reader > div,
+#qr-reader__scan_region,
+#customer-qr-reader__scan_region {
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 100% !important;
+  position: relative !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+}
+
+#qr-reader video,
+#customer-qr-reader video,
+#html5-qrcode-video {
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 100% !important;
+  min-height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  object-fit: cover !important;
+  display: block !important;
+  position: absolute !important;
+  inset: 0 !important;
+}
+
+/* Hide html5-qrcode default shaded region to let our custom cutout shine */
+#qr-shaded-region,
+#customer-qr-reader #qr-shaded-region,
+#qr-reader #qr-shaded-region {
+  display: none !important;
+}

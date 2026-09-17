@@ -1,0 +1,25 @@
+{
+  "name": "PIRRO - Valuta Komplementare Digjitale",
+  "short_name": "PIRRO",
+  "description": "Valuta Komplementare Digjitale",
+  "start_url": "/",
+  "id": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F5F5F5",
+  "theme_color": "#F5F5F5",
+  "icons": [
+    {
+      "src": "/assets/logos/Pirro-logo-favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
