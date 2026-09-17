@@ -56,6 +56,10 @@ export const metadata: Metadata = {
     statusBarStyle: 'default',
     title: 'PIRRO',
   },
+  robots: {
+    index: false,
+    follow: false,
+  },
 };
 
 export const viewport: Viewport = {
